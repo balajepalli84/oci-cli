@@ -11,7 +11,7 @@ from oci_cli import cli_exceptions
 from oci_cli import custom_types
 from oci_cli import json_skeleton_utils
 from oci_cli import cli_util
-from oci_cli.cli_util import get_tenancy_from_config
+from oci_cli.cli_util import get_tenancy_from_config,build_config
 import oci_cli.cli_root as cli_root
 import oci_cli.final_command_processor as final_command_processor
 from oci_cli.aliasing import CommandGroupWithAlias
@@ -777,3 +777,52 @@ def get_db_token(ctx, from_json, scope, db_token_location):
     db_token_file = db_token_container.get_jwt()
     expiry_time = datetime.datetime.fromtimestamp(db_token_file['exp']).strftime("%Y-%m-%d %H:%M:%S")
     click.echo("db-token is valid until " + expiry_time, file=sys.stderr)
+
+@click.command('whoami', help="Displays details about the current authenticated user.")
+@click.pass_context
+@json_skeleton_utils.json_skeleton_generation_handler(output_type=None)
+@cli_util.wrap_exceptions
+
+def whoami(ctx):    
+        auth_value = ctx.obj['auth']         
+        from oci.response import Response
+        response_data = {}
+        response_data["auth_method"] = auth_value     
+        config ={}            
+        if auth_value == "instance_obo_user":
+            user_id = os.getenv("OCI_CS_USER_OCID")
+            if not user_id:
+                raise ValueError("OCI_CS_USER_OCID environment variable is not set for Cloud Shell.")
+            response_data["user_id"] = user_id
+            response_data["user_agent"] = "Cloud_Shell"
+
+        elif auth_value == "instance_principal":    
+            headers = {
+                "Authorization": "Bearer Oracle"
+            }      
+            from oci._vendor import requests
+            
+            response=requests.get('http://169.254.169.254/opc/v2/instance/',headers=headers)
+            response_data["instance_id"] = response.json()['id']
+        else:
+            config = build_config(ctx.obj)
+        # Dynamically add only existing values to the response
+        optional_fields = {
+            "user_id": config.get("user"),
+            "tenancy_id": config.get("tenancy"),
+            "security_token_file": config.get("security_token_file"),
+            "region": config.get("region"),
+            "fingerprint": config.get("fingerprint"),
+            "key_file": config.get("key_file"),
+        }
+
+        # Add only non-missing values to response
+        response_data.update({k: v for k, v in optional_fields.items() if v})      
+        response= Response(
+            status=200,
+            headers={"Content-Type": "application/json"},
+            request=None,  
+            data=response_data
+            )
+        cli_util.render_response(response, ctx)
+identity_cli.iam_root_group.add_command(whoami)
