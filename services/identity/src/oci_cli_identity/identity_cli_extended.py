@@ -795,9 +795,7 @@ def whoami(ctx):
         "user_name": None,
         "user_email": None,
         "region": "unknown",
-        "region_key": None,
         "tenancy_name": "unknown",
-        "tenant_id": None,
     }
 
     if auth_value == "instance_obo_user":
@@ -827,16 +825,15 @@ def whoami(ctx):
             "auth_method": "instance_principal",
             "user_id": metadata.get("id"),
             "user_name": metadata.get("displayName"),
-            "tenant_id": metadata.get("tenantId"),
             "region": metadata.get("regionInfo", {}).get("regionIdentifier", "unknown"),
-            "region_key": metadata.get("regionInfo", {}).get("regionKey"),
         })
         
         try:
-            tenancy = client.get_tenancy(response_data["tenant_id"])
+            tenancy = client.get_tenancy(metadata.get("tenantId"))
             response_data["tenancy_name"] = tenancy.data.name
         except Exception as e:
-            print(f"Failed to get tenancy name for tenantId {response_data['tenant_id']}: {e}")
+            print(f"Failed to get tenancy name for tenantId {metadata.get('tenantId')}: {e}")
+
     else:
         config = build_config(ctx.obj)
         auth_value = "security_token" if config.get("security_token_file") else auth_value
@@ -871,4 +868,3 @@ def whoami(ctx):
 
 
 identity_cli.iam_root_group.add_command(whoami)
-
