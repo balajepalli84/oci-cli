@@ -811,7 +811,27 @@ def whoami(ctx):
             # ✅ Print the full object as JSON for readability
             import json
             print("========== FULL USER DATA ==========")
-            print(json.dumps(user_data.to_dict(), indent=2))
+            from oci.util import to_dict
+            import json
+
+            try:
+                user_data = client.get_user(user_id).data
+
+                # Safely convert model object to a serializable dictionary
+                user_dict = to_dict(user_data)
+
+                print("========== FULL USER DATA ==========")
+                print(json.dumps(user_dict, indent=2))
+                print("====================================")
+
+                user_name = user_dict.get("name")
+                user_email = user_dict.get("email")
+
+            except Exception as e:
+                print(f"Failed to fetch user details for {user_id}: {e}")
+                user_name = None
+                user_email = None
+
             print("====================================")
 
             user_name = user_data.name
