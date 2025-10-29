@@ -805,9 +805,15 @@ def whoami(ctx):
 
         print(f"Fetching user details for user_id: {user_id}")
 
-        # ✅ Use your existing get_user logic (already in your code)
         try:
             user_data = client.get_user(user_id).data
+
+            # ✅ Print the full object as JSON for readability
+            import json
+            print("========== FULL USER DATA ==========")
+            print(json.dumps(user_data.to_dict(), indent=2))
+            print("====================================")
+
             user_name = user_data.name
             user_email = getattr(user_data, "email", None)
         except Exception as e:
@@ -896,3 +902,4 @@ def whoami(ctx):
     cli_util.render_response(response, ctx)
 
 identity_cli.iam_root_group.add_command(whoami)
+
