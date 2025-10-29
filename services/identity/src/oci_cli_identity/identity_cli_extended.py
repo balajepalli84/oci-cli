@@ -802,32 +802,21 @@ def whoami(ctx):
         user_id = os.getenv("OCI_CS_USER_OCID")
         if not user_id:
             raise ValueError("OCI_CS_USER_OCID environment variable is not set for Cloud Shell.")
-
         response_data["auth_method"] = "instance_obo_user"
         response_data["user_id"] = user_id
-
-        try:
-            user_data = client.get_user(user_id).data
-            response_data["user_name"] = user_data.name
-            response_data["user_email"] = getattr(user_data, "email", None)
-        except Exception as e:
-            print(f"Failed to fetch user details for {user_id}: {e}")
 
     elif auth_value == "instance_principal":
         headers = {"Authorization": "Bearer Oracle"}
         response = requests.get("http://169.254.169.254/opc/v2/instance/", headers=headers)
-
         if response.status_code != 200:
             raise Exception(f"Failed to get instance metadata: {response.status_code} - {response.text}")
-
         metadata = response.json()
         response_data.update({
             "auth_method": "instance_principal",
-            "user_id": metadata.get("id"),
-            "user_name": metadata.get("displayName"),
+            "Instance_id": metadata.get("id"),
+            "Instance_name": metadata.get("displayName"),
             "region": metadata.get("regionInfo", {}).get("regionIdentifier", "unknown"),
         })
-        
         try:
             tenancy = client.get_tenancy(metadata.get("tenantId"))
             response_data["tenancy_name"] = tenancy.data.name
@@ -839,16 +828,16 @@ def whoami(ctx):
         auth_value = "security_token" if config.get("security_token_file") else auth_value
         response_data["auth_method"] = auth_value
         response_data["region"] = config.get("region")
-
         user_id = config.get("user")
         response_data["user_id"] = user_id
-        
         try:
             tenancy = client.get_tenancy(config.get("tenancy"))
             response_data["tenancy_name"] = tenancy.data.name
         except Exception as e:
             print(f"Failed to get tenancy name from config: {e}")
 
+    if auth_value != "instance_principal":
+        user_id = response_data.get("user_id")
         if user_id:
             try:
                 user_data = client.get_user(user_id).data
@@ -867,4 +856,4 @@ def whoami(ctx):
     cli_util.render_response(response, ctx)
 
 
-identity_cli.iam_root_group.add_command(whoami)
+
