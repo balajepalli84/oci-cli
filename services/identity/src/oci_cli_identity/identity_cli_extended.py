@@ -790,9 +790,7 @@ def whoami(ctx):
     client = cli_util.build_client('identity', 'identity', ctx)
     
     response_data = {
-        "auth_method": auth_value,
-        "region": "unknown",
-        "tenancy_name": "unknown",
+        "auth_method": auth_value
     }
 
     if auth_value == "instance_obo_user":
