@@ -809,6 +809,9 @@ def whoami(ctx):
         response = requests.get('http://169.254.169.254/opc/v2/instance/', headers=headers)
         response_data["auth_method"] = "instance_principal"
         print(f"instance metadata is {response}")
+        import json
+        print("instance metadata is:")
+        print(json.dumps(response.json(), indent=4))
         response_data["user_id"] = response.json().get('id')
         response_data["region"] = "unknown"
         response_data["tenancy_name"] = "unknown"
