@@ -784,45 +784,76 @@ def get_db_token(ctx, from_json, scope, db_token_location):
 @cli_util.wrap_exceptions
 
 def whoami(ctx):    
-        auth_value = ctx.obj['auth']         
-        from oci.response import Response
-        response_data = {}
-        response_data["auth_method"] = auth_value     
-        config ={}            
-        if auth_value == "instance_obo_user":
-            user_id = os.getenv("OCI_CS_USER_OCID")
-            if not user_id:
-                raise ValueError("OCI_CS_USER_OCID environment variable is not set for Cloud Shell.")
-            response_data["user_id"] = user_id
-            response_data["user_agent"] = "Cloud_Shell"
+    from oci.response import Response
+    from oci._vendor import requests
 
-        elif auth_value == "instance_principal":    
-            headers = {
-                "Authorization": "Bearer Oracle"
-            }      
-            from oci._vendor import requests
-            
-            response=requests.get('http://169.254.169.254/opc/v2/instance/',headers=headers)
-            response_data["instance_id"] = response.json()['id']
-        else:
-            config = build_config(ctx.obj)
-        # Dynamically add only existing values to the response
-        optional_fields = {
-            "user_id": config.get("user"),
-            "tenancy_id": config.get("tenancy"),
-            "security_token_file": config.get("security_token_file"),
-            "region": config.get("region"),
-            "fingerprint": config.get("fingerprint"),
-            "key_file": config.get("key_file"),
+    auth_value = ctx.obj['auth']         
+    response_data = {}
+    config = {}    
+    client = cli_util.build_client('identity', 'identity', ctx)  
+
+    # Determine authentication type
+    if auth_value == "instance_obo_user":
+        user_id = os.getenv("OCI_CS_USER_OCID")
+        if not user_id:
+            raise ValueError("OCI_CS_USER_OCID environment variable is not set for Cloud Shell.")
+        response_data["auth_method"] = "instance_obo_user"
+        response_data["user_id"] = user_id
+        response_data["user_name"] = "Cloud_Shell_User"
+        response_data["region"] = "unknown"
+        response_data["tenancy_name"] = "unknown"
+        response_data["user_email"] = None
+        print(f"get_user to get value for {user_id}")
+    elif auth_value == "instance_principal":    
+        headers = {"Authorization": "Bearer Oracle"}      
+        response = requests.get('http://169.254.169.254/opc/v2/instance/', headers=headers)
+        response_data["auth_method"] = "instance_principal"
+        print(f"instance metadata is {response}")
+        response_data["user_id"] = response.json().get('id')
+        response_data["region"] = "unknown"
+        response_data["tenancy_name"] = "unknown"
+        response_data["user_name"] = None
+        response_data["user_email"] = None
+
+    else:
+        # Standard config-based authentication
+        config = build_config(ctx.obj)
+        tenancy = client.get_tenancy(tenancy_id=config.get("tenancy"))
+        tenancy_name = tenancy.data.name if tenancy else None
+
+        # Override auth_method if security token file exists
+        auth_value = "security_token" if config.get("security_token_file") else auth_value
+
+        # Default fields
+        region = config.get("region")
+        user_id = config.get("user")
+        user_name = None
+        user_email = None
+
+        # Fetch user info if user OCID exists
+        if user_id:
+            try:
+                user_data = client.get_user(user_id).data
+                user_name = user_data.name
+                user_email = getattr(user_data, "email", None)
+            except Exception as e:
+                print(f"Failed to fetch user details: {e}")
+
+        response_data = {
+            "auth_method": auth_value,
+            "region": region,
+            "tenancy_name": tenancy_name,
+            "user_email": user_email,
+            "user_id": user_id,
+            "user_name": user_name,
         }
 
-        # Add only non-missing values to response
-        response_data.update({k: v for k, v in optional_fields.items() if v})      
-        response= Response(
-            status=200,
-            headers={"Content-Type": "application/json"},
-            request=None,  
-            data=response_data
-            )
-        cli_util.render_response(response, ctx)
+    response = Response(
+        status=200,
+        headers={"Content-Type": "application/json"},
+        request=None,  
+        data=response_data
+    )
+    cli_util.render_response(response, ctx)
+
 identity_cli.iam_root_group.add_command(whoami)
