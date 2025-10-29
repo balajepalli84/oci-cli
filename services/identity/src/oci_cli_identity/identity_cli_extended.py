@@ -786,25 +786,43 @@ def whoami(ctx):
     from oci.response import Response
     from oci._vendor import requests
     import json
+    import os
 
-    auth_value = ctx.obj['auth']
+    # Print full Click context for debugging
+    print("========== CTX OBJECT ==========")
+    print(ctx)
+    print("CTX OBJ KEYS:", ctx.obj.keys() if ctx.obj else "No ctx.obj found")
+    print("================================")
+
+    auth_value = ctx.obj.get('auth') if ctx.obj else None
     response_data = {}
-    config = {}
     client = cli_util.build_client('identity', 'identity', ctx)
 
     if auth_value == "instance_obo_user":
         user_id = os.getenv("OCI_CS_USER_OCID")
         if not user_id:
             raise ValueError("OCI_CS_USER_OCID environment variable is not set for Cloud Shell.")
+
+        print(f"Fetching user details for user_id: {user_id}")
+
+        # ✅ Use your existing get_user logic (already in your code)
+        try:
+            user_data = client.get_user(user_id).data
+            user_name = user_data.name
+            user_email = getattr(user_data, "email", None)
+        except Exception as e:
+            print(f"Failed to fetch user details for {user_id}: {e}")
+            user_name = None
+            user_email = None
+
         response_data = {
             "auth_method": "instance_obo_user",
             "user_id": user_id,
-            "user_name": "Cloud_Shell_User",
+            "user_name": user_name,
+            "user_email": user_email,
             "region": "unknown",
             "tenancy_name": "unknown",
-            "user_email": None
         }
-        print(f"get_user and tenancy details to get value for {user_id}")
 
     elif auth_value == "instance_principal":
         headers = {"Authorization": "Bearer Oracle"}
@@ -814,16 +832,14 @@ def whoami(ctx):
             raise Exception(f"Failed to get instance metadata: {response.status_code} - {response.text}")
 
         instance_metadata = response.json()
-        print(f"Instance metadata is {json.dumps(instance_metadata, indent=2)}")
+        print(f"Instance metadata:\n{json.dumps(instance_metadata, indent=2)}")
 
-        # Extract relevant fields
         display_name = instance_metadata.get("displayName")
         tenant_id = instance_metadata.get("tenantId")
         region_key = instance_metadata.get("regionInfo", {}).get("regionKey")
         region_identifier = instance_metadata.get("regionInfo", {}).get("regionIdentifier")
         user_id = instance_metadata.get("id")
 
-        # Try to fetch tenancy name from tenantId
         tenancy_name = "unknown"
         try:
             tenancy = client.get_tenancy(tenant_id)
@@ -836,11 +852,13 @@ def whoami(ctx):
             "user_id": user_id,
             "user_name": display_name,
             "region": region_identifier or "unknown",
-            "tenancy_name": tenancy_name
+            "region_key": region_key,
+            "tenancy_name": tenancy_name,
+            "tenant_id": tenant_id,
+            "user_email": None
         }
 
     else:
-        # Standard config-based authentication
         config = build_config(ctx.obj)
         tenancy = client.get_tenancy(tenancy_id=config.get("tenancy"))
         tenancy_name = tenancy.data.name if tenancy else None
