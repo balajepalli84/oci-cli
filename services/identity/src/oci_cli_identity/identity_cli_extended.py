@@ -855,5 +855,4 @@ def whoami(ctx):
 
     cli_util.render_response(response, ctx)
 
-
-
+identity_cli.iam_root_group.add_command(whoami)
