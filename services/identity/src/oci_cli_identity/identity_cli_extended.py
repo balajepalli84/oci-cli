@@ -785,132 +785,80 @@ def get_db_token(ctx, from_json, scope, db_token_location):
 def whoami(ctx):
     from oci.response import Response
     from oci._vendor import requests
-    import json
-    import os
-
-    # Print full Click context for debugging
-    print("========== CTX OBJECT ==========")
-    print(ctx)
-    print("CTX OBJ KEYS:", ctx.obj.keys() if ctx.obj else "No ctx.obj found")
-    print("================================")
 
     auth_value = ctx.obj.get('auth') if ctx.obj else None
-    response_data = {}
     client = cli_util.build_client('identity', 'identity', ctx)
+    
+    response_data = {
+        "auth_method": auth_value,
+        "user_id": None,
+        "user_name": None,
+        "user_email": None,
+        "region": "unknown",
+        "region_key": None,
+        "tenancy_name": "unknown",
+        "tenant_id": None,
+    }
 
     if auth_value == "instance_obo_user":
         user_id = os.getenv("OCI_CS_USER_OCID")
         if not user_id:
             raise ValueError("OCI_CS_USER_OCID environment variable is not set for Cloud Shell.")
 
-        print(f"Fetching user details for user_id: {user_id}")
+        response_data["auth_method"] = "instance_obo_user"
+        response_data["user_id"] = user_id
 
         try:
             user_data = client.get_user(user_id).data
-
-            # ✅ Print the full object as JSON for readability
-            import json
-            print("========== FULL USER DATA ==========")
-            from oci.util import to_dict
-            import json
-
-            try:
-                user_data = client.get_user(user_id).data
-
-                # Safely convert model object to a serializable dictionary
-                user_dict = to_dict(user_data)
-
-                print("========== FULL USER DATA ==========")
-                print(json.dumps(user_dict, indent=2))
-                print("====================================")
-
-                user_name = user_dict.get("name")
-                user_email = user_dict.get("email")
-
-            except Exception as e:
-                print(f"Failed to fetch user details for {user_id}: {e}")
-                user_name = None
-                user_email = None
-
-            print("====================================")
-
-            user_name = user_data.name
-            user_email = getattr(user_data, "email", None)
+            response_data["user_name"] = user_data.name
+            response_data["user_email"] = getattr(user_data, "email", None)
         except Exception as e:
             print(f"Failed to fetch user details for {user_id}: {e}")
-            user_name = None
-            user_email = None
-
-        response_data = {
-            "auth_method": "instance_obo_user",
-            "user_id": user_id,
-            "user_name": user_name,
-            "user_email": user_email,
-            "region": "unknown",
-            "tenancy_name": "unknown",
-        }
 
     elif auth_value == "instance_principal":
         headers = {"Authorization": "Bearer Oracle"}
-        response = requests.get('http://169.254.169.254/opc/v2/instance/', headers=headers)
+        response = requests.get("http://169.254.169.254/opc/v2/instance/", headers=headers)
 
         if response.status_code != 200:
             raise Exception(f"Failed to get instance metadata: {response.status_code} - {response.text}")
 
-        instance_metadata = response.json()
-        print(f"Instance metadata:\n{json.dumps(instance_metadata, indent=2)}")
-
-        display_name = instance_metadata.get("displayName")
-        tenant_id = instance_metadata.get("tenantId")
-        region_key = instance_metadata.get("regionInfo", {}).get("regionKey")
-        region_identifier = instance_metadata.get("regionInfo", {}).get("regionIdentifier")
-        user_id = instance_metadata.get("id")
-
-        tenancy_name = "unknown"
-        try:
-            tenancy = client.get_tenancy(tenant_id)
-            tenancy_name = tenancy.data.name
-        except Exception as e:
-            print(f"Failed to get tenancy name for tenantId {tenant_id}: {e}")
-
-        response_data = {
+        metadata = response.json()
+        response_data.update({
             "auth_method": "instance_principal",
-            "user_id": user_id,
-            "user_name": display_name,
-            "region": region_identifier or "unknown",
-            "region_key": region_key,
-            "tenancy_name": tenancy_name,
-            "tenant_id": tenant_id,
-            "user_email": None
-        }
-
+            "user_id": metadata.get("id"),
+            "user_name": metadata.get("displayName"),
+            "tenant_id": metadata.get("tenantId"),
+            "region": metadata.get("regionInfo", {}).get("regionIdentifier", "unknown"),
+            "region_key": metadata.get("regionInfo", {}).get("regionKey"),
+        })
+        
+        try:
+            tenancy = client.get_tenancy(response_data["tenant_id"])
+            response_data["tenancy_name"] = tenancy.data.name
+        except Exception as e:
+            print(f"Failed to get tenancy name for tenantId {response_data['tenant_id']}: {e}")
     else:
         config = build_config(ctx.obj)
-        tenancy = client.get_tenancy(tenancy_id=config.get("tenancy"))
-        tenancy_name = tenancy.data.name if tenancy else None
-
         auth_value = "security_token" if config.get("security_token_file") else auth_value
-        region = config.get("region")
+        response_data["auth_method"] = auth_value
+        response_data["region"] = config.get("region")
+
         user_id = config.get("user")
-        user_name = None
-        user_email = None
+        response_data["user_id"] = user_id
+        
+        try:
+            tenancy = client.get_tenancy(config.get("tenancy"))
+            response_data["tenancy_name"] = tenancy.data.name
+        except Exception as e:
+            print(f"Failed to get tenancy name from config: {e}")
 
         if user_id:
             try:
                 user_data = client.get_user(user_id).data
-                user_name = user_data.name
-                user_email = getattr(user_data, "email", None)
+                response_data["user_name"] = user_data.name
+                response_data["user_email"] = getattr(user_data, "email", None)
             except Exception as e:
                 print(f"Failed to fetch user details: {e}")
-
-        response_data = {
-            "auth_method": auth_value,
-            "region": region,
-            "tenancy_name": tenancy_name,
-            "user_email": user_email,
-            "user_id": user_id,
-            "user_name": user_name,
-        }
 
     response = Response(
         status=200,
@@ -920,6 +868,7 @@ def whoami(ctx):
     )
 
     cli_util.render_response(response, ctx)
+
 
 identity_cli.iam_root_group.add_command(whoami)
 
