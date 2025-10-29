@@ -791,9 +791,6 @@ def whoami(ctx):
     
     response_data = {
         "auth_method": auth_value,
-        "user_id": None,
-        "user_name": None,
-        "user_email": None,
         "region": "unknown",
         "tenancy_name": "unknown",
     }
@@ -856,3 +853,5 @@ def whoami(ctx):
     cli_util.render_response(response, ctx)
 
 identity_cli.iam_root_group.add_command(whoami)
+
+
