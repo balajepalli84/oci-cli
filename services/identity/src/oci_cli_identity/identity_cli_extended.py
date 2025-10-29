@@ -782,41 +782,62 @@ def get_db_token(ctx, from_json, scope, db_token_location):
 @click.pass_context
 @json_skeleton_utils.json_skeleton_generation_handler(output_type=None)
 @cli_util.wrap_exceptions
-
-def whoami(ctx):    
+def whoami(ctx):
     from oci.response import Response
     from oci._vendor import requests
+    import json
 
-    auth_value = ctx.obj['auth']         
+    auth_value = ctx.obj['auth']
     response_data = {}
-    config = {}    
-    client = cli_util.build_client('identity', 'identity', ctx)  
+    config = {}
+    client = cli_util.build_client('identity', 'identity', ctx)
 
-    # Determine authentication type
     if auth_value == "instance_obo_user":
         user_id = os.getenv("OCI_CS_USER_OCID")
         if not user_id:
             raise ValueError("OCI_CS_USER_OCID environment variable is not set for Cloud Shell.")
-        response_data["auth_method"] = "instance_obo_user"
-        response_data["user_id"] = user_id
-        response_data["user_name"] = "Cloud_Shell_User"
-        response_data["region"] = "unknown"
-        response_data["tenancy_name"] = "unknown"
-        response_data["user_email"] = None
-        print(f"get_user to get value for {user_id}")
-    elif auth_value == "instance_principal":    
-        headers = {"Authorization": "Bearer Oracle"}      
+        response_data = {
+            "auth_method": "instance_obo_user",
+            "user_id": user_id,
+            "user_name": "Cloud_Shell_User",
+            "region": "unknown",
+            "tenancy_name": "unknown",
+            "user_email": None
+        }
+        print(f"get_user and tenancy details to get value for {user_id}")
+
+    elif auth_value == "instance_principal":
+        headers = {"Authorization": "Bearer Oracle"}
         response = requests.get('http://169.254.169.254/opc/v2/instance/', headers=headers)
-        response_data["auth_method"] = "instance_principal"
-        print(f"instance metadata is {response}")
-        import json
-        print("instance metadata is:")
-        print(json.dumps(response.json(), indent=4))
-        response_data["user_id"] = response.json().get('id')
-        response_data["region"] = "unknown"
-        response_data["tenancy_name"] = "unknown"
-        response_data["user_name"] = None
-        response_data["user_email"] = None
+
+        if response.status_code != 200:
+            raise Exception(f"Failed to get instance metadata: {response.status_code} - {response.text}")
+
+        instance_metadata = response.json()
+        print(f"Instance metadata is {json.dumps(instance_metadata, indent=2)}")
+
+        # Extract relevant fields
+        display_name = instance_metadata.get("displayName")
+        tenant_id = instance_metadata.get("tenantId")
+        region_key = instance_metadata.get("regionInfo", {}).get("regionKey")
+        region_identifier = instance_metadata.get("regionInfo", {}).get("regionIdentifier")
+        user_id = instance_metadata.get("id")
+
+        # Try to fetch tenancy name from tenantId
+        tenancy_name = "unknown"
+        try:
+            tenancy = client.get_tenancy(tenant_id)
+            tenancy_name = tenancy.data.name
+        except Exception as e:
+            print(f"Failed to get tenancy name for tenantId {tenant_id}: {e}")
+
+        response_data = {
+            "auth_method": "instance_principal",
+            "user_id": user_id,
+            "user_name": display_name,
+            "region": region_identifier or "unknown",
+            "tenancy_name": tenancy_name
+        }
 
     else:
         # Standard config-based authentication
@@ -824,16 +845,12 @@ def whoami(ctx):
         tenancy = client.get_tenancy(tenancy_id=config.get("tenancy"))
         tenancy_name = tenancy.data.name if tenancy else None
 
-        # Override auth_method if security token file exists
         auth_value = "security_token" if config.get("security_token_file") else auth_value
-
-        # Default fields
         region = config.get("region")
         user_id = config.get("user")
         user_name = None
         user_email = None
 
-        # Fetch user info if user OCID exists
         if user_id:
             try:
                 user_data = client.get_user(user_id).data
@@ -854,9 +871,10 @@ def whoami(ctx):
     response = Response(
         status=200,
         headers={"Content-Type": "application/json"},
-        request=None,  
+        request=None,
         data=response_data
     )
+
     cli_util.render_response(response, ctx)
 
 identity_cli.iam_root_group.add_command(whoami)
