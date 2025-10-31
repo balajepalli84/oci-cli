@@ -788,66 +788,79 @@ def whoami(ctx):
 
     auth_value = ctx.obj.get('auth') if ctx.obj else None
     client = cli_util.build_client('identity', 'identity', ctx)
-    
-    response_data = {
-        "auth_method": auth_value
-    }
+    response_data = {"auth_method": auth_value}
+
+    region = None
+    tenant_id = None
+    user_id = None
 
     if auth_value == "instance_obo_user":
         user_id = os.getenv("OCI_CS_USER_OCID")
+        region = os.getenv("OCI_REGION")
+        tenant_id = os.getenv("OCI_TENANCY")
+
         if not user_id:
             raise ValueError("OCI_CS_USER_OCID environment variable is not set for Cloud Shell.")
-        response_data["auth_method"] = "instance_obo_user"
-        response_data["user_id"] = user_id
 
+        response_data.update({
+            "auth_method": "instance_obo_user",
+            "user_id": user_id,
+            "region": region,
+            "tenant_id": tenant_id,
+        })
     elif auth_value == "instance_principal":
         headers = {"Authorization": "Bearer Oracle"}
         response = requests.get("http://169.254.169.254/opc/v2/instance/", headers=headers)
         if response.status_code != 200:
             raise Exception(f"Failed to get instance metadata: {response.status_code} - {response.text}")
+        
         metadata = response.json()
+        region = metadata.get("regionInfo", {}).get("regionIdentifier", "unknown")
+        tenant_id = metadata.get("tenantId")
+
         response_data.update({
             "auth_method": "instance_principal",
             "Instance_id": metadata.get("id"),
             "Instance_name": metadata.get("displayName"),
-            "region": metadata.get("regionInfo", {}).get("regionIdentifier", "unknown"),
+            "region": region,
+            "tenant_id": tenant_id,
         })
-        try:
-            tenancy = client.get_tenancy(metadata.get("tenantId"))
-            response_data["tenancy_name"] = tenancy.data.name
-        except Exception as e:
-            print(f"Failed to get tenancy name for tenantId {metadata.get('tenantId')}: {e}")
 
     else:
-        config = build_config(ctx.obj)
+        config = cli_util.build_config(ctx.obj)
         auth_value = "security_token" if config.get("security_token_file") else auth_value
-        response_data["auth_method"] = auth_value
-        response_data["region"] = config.get("region")
+        region = config.get("region")
+        tenant_id = config.get("tenancy")
         user_id = config.get("user")
-        response_data["user_id"] = user_id
+
+        response_data.update({
+            "auth_method": auth_value,
+            "region": region,
+            "tenant_id": tenant_id,
+            "user_id": user_id,
+        })
+
+    if tenant_id:
         try:
-            tenancy = client.get_tenancy(config.get("tenancy"))
+            tenancy = client.get_tenancy(tenant_id)
             response_data["tenancy_name"] = tenancy.data.name
         except Exception as e:
-            print(f"Failed to get tenancy name from config: {e}")
+            print(f"Failed to get tenancy name for tenantId {tenant_id}: {e}")
+            response_data["tenancy_name"] = None
 
-    if auth_value != "instance_principal":
-        user_id = response_data.get("user_id")
-        if user_id:
-            try:
-                user_data = client.get_user(user_id).data
-                response_data["user_name"] = user_data.name
-                response_data["user_email"] = getattr(user_data, "email", None)
-            except Exception as e:
-                print(f"Failed to fetch user details: {e}")
-
+    if auth_value != "instance_principal" and user_id:
+        try:
+            user_data = client.get_user(user_id).data
+            response_data["user_name"] = user_data.name
+            response_data["user_email"] = getattr(user_data, "email", None)
+        except Exception as e:
+            print(f"Failed to fetch user details for {user_id}: {e}")
     response = Response(
         status=200,
         headers={"Content-Type": "application/json"},
         request=None,
         data=response_data
     )
-
     cli_util.render_response(response, ctx)
 
 identity_cli.iam_root_group.add_command(whoami)
